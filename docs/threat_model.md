@@ -1,4 +1,4 @@
-# Threat model — Phases 1–4
+# Threat model — Phases 1–5
 
 ## Assets
 
@@ -116,3 +116,29 @@ URLs and query strings. Uvicorn access logs must still be disabled separately.
 Generic text does not assess URL reputation or email phishing. Timing varies
 between requests; all decision fields are deterministic for fixed trusted detectors.
 The Phase 4 tests are regression checks, not a benchmark or a detection guarantee.
+
+## Phase 5 evaluation boundary
+
+Additional assets are annotation integrity, dataset provenance and report privacy.
+The CLI loads local untrusted JSONL with strict field/type/size validation and
+duplicate-ID/key rejection. It never executes examples or fetches URLs. Ground
+truth does not cross the input-only analysis boundary; production detectors do
+not import datasets/evaluation. Rules remain unchanged. Tests block socket/DNS
+access during a real benchmark and check label separation and output redaction.
+
+Reports omit input, sender/body, complete URLs and analyzer exception messages.
+Only sample IDs, category, expected/predicted decisions, scores, timing and metadata
+are emitted. IDs/paths are operator-controlled metadata and must not contain
+secrets. CLI paths resolve inside cwd (including symlink checks), UNC is rejected,
+and output uses exclusive creation. This does not defend against a concurrent
+hostile local filesystem actor; library path handling is the caller's responsibility.
+Files are bounded to 4 MiB each; CLI operators control total files and run size.
+
+The corpus uses example domains, documentation IP ranges and explicit synthetic
+credential placeholders. Secret-marker checks are not proof that arbitrary user
+datasets contain no secrets. Versioned hashes identify bytes, not label correctness.
+Small hand-authored data, subjective labels and unavailable URL trust context
+limit interpretation. Observed v1 FPR=40.625% and FNR=15.625% are diagnostic only,
+not population estimates. ASR proxy measures ALLOW decisions, not actual exploit
+success or enforcement. Details: [evaluation.md](evaluation.md). No Phase 6+
+component or execution capability is introduced.

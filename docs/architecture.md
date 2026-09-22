@@ -1,4 +1,4 @@
-# Architecture — Phases 1–4
+# Architecture — Phases 1–5
 
 `create_app(Settings)` constructs a FastAPI instance with its own immutable
 settings. The module-level `app` is the Uvicorn entrypoint. Settings load from
@@ -58,7 +58,7 @@ rule metadata. Threats can appear even in a SAFE educational assessment.
 
 Finding and RiskEngine separate evidence production from policy: a later classifier
 can contribute findings without replacing local rules. No LLM client,
-tool guardian, runtime monitor, evaluation pipeline or UI is implemented.
+tool guardian, runtime monitor or UI is implemented. Local evaluation is described below.
 
 ## Email analysis (Phase 3)
 
@@ -185,3 +185,22 @@ Direct invalid arguments raise static TypeError/ValueError messages without inpu
 unexpected internal failures propagate to the HTTP redaction boundary (500).
 The advisor only formats trusted findings and the score, never raw input. It is
 not a classifier, a second policy engine or an external model.
+
+## Local evaluation (Phase 5)
+
+The installed `evaluation` subpackage contains strict JSONL loading (`dataset.py`),
+an input-only adapter and CLI (`benchmark.py`), and metric aggregation (`metrics.py`).
+The default three versioned files contain 64 project-authored samples; regression
+fixtures are separate. Production code has no dependency on evaluation or datasets.
+Prompt/text/email call public SecurityOrchestrator methods. Standalone URLs call
+URLGuard.detect and the existing RiskEngine.score/decide, without an API endpoint.
+No production model, rule, score threshold or advisor behavior changes.
+
+Only kind and input reach the adapter. Labels and expected actions are compared
+after predictions; positive means not safe (URL: assessment != SAFE). Reports
+contain identifiers and predictions, never raw content. Metrics include FPR/FNR,
+ALLOW-based ASR proxy and action agreement, with per-kind/category breakdowns.
+Timing wraps each adapter call using perf_counter; P95 uses nearest rank.
+Dataset hashes, versions and configuration support reproduction. CLI has controlled
+errors, cwd-confined paths and exclusive output creation. Full definitions and
+measured limitations are in [evaluation.md](evaluation.md).
