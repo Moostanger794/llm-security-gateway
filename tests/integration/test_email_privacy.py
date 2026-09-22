@@ -29,7 +29,7 @@ def test_email_privacy(
         def fail(*args: object, **kwargs: object) -> None:
             raise ValueError("exception-secret")
 
-        monkeypatch.setattr(EmailGuard, "analyze", fail)
+        monkeypatch.setattr(EmailGuard, "detect", fail)
         responses.append(client.post("/analyze/email", json=payload))
     assert [r.status_code for r in responses] == [200, 422, 422, 413, 500]
     logs = capsys.readouterr().err

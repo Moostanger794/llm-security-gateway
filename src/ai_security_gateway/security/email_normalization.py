@@ -3,7 +3,7 @@ import re
 import unicodedata
 from email.utils import parseaddr
 
-from ai_security_gateway.security.normalization import canonicalize
+from ai_security_gateway.security.normalization import canonicalize, has_visible_content
 
 MAX_SENDER_LENGTH = 320
 MAX_SUBJECT_LENGTH = 998
@@ -15,7 +15,7 @@ def validate_email_field(value: str, limit: int) -> str:
     """Bound original input for both API and direct callers, without echoing it."""
     if not isinstance(value, str):
         raise TypeError("email field must be a string")
-    if not 1 <= len(value) <= limit or not canonicalize(value).strip():
+    if not 1 <= len(value) <= limit or not has_visible_content(value):
         raise ValueError("email field is empty or exceeds its character limit")
     return value
 

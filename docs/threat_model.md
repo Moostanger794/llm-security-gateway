@@ -1,4 +1,4 @@
-# Threat model — Phases 1–3
+# Threat model — Phases 1–4
 
 ## Assets
 
@@ -10,7 +10,7 @@ are persisted by this phase.
 ## Trust boundaries and attack surfaces
 
 HTTP clients are untrusted; environment configuration is operator-controlled.
-Exposed surfaces are `/health`, `/analyze/prompt`, `/analyze/email`, OpenAPI, and interactive API
+Exposed surfaces are `/health`, `/analyze/prompt`, `/analyze/email`, `/analyze/text`, OpenAPI, and interactive API
 documentation. The text field may contain external documents, but source identity
 and user intent cannot be verified from text. There are no outbound requests,
 tool execution or file uploads. The calling application is responsible for
@@ -50,7 +50,7 @@ identity, SPF, DKIM and DMARC are not verified. Headers beyond sender, MIME and
 attachments are outside this API's scope.
 
 Email fields are bounded before normalization: sender 320, subject 998, body
-100,000 characters. All HTTP bodies have a 1280-KiB limit; prompt keeps its 128-KiB
+100,000 characters. All HTTP bodies have a 1280-KiB limit; prompt/text keep their 128-KiB
 limit. Streamed bodies are counted before parsing even if Content-Length is absent
 or inaccurate. All extracted URLs are inspected; repetitions are deduplicated.
 Application logs and responses never echo email fields, URL values, embedded
@@ -91,3 +91,28 @@ Simple HTML stripping is not equivalent to browser rendering. No DNS, WHOIS,
 reputation service, external API or malware inspection is used. A LOW/ALLOW result
 is not proof of sender authenticity or URL safety. Fixtures check regressions;
 they do not establish real-world detection rates.
+
+## Phase 4 service boundary review
+
+All HTTP analysis passes through SecurityOrchestrator. Direct callers receive the
+same type, visibility and length validation before any injected detector executes.
+Control-only content is rejected in addition to whitespace/formatting-only input.
+No optional source claim is accepted; text uses PromptGuard only. Email's existing
+untrusted context stays in EmailGuard. No network, database, model provider or
+agent execution is introduced.
+
+Duplicate findings cannot multiply category weights. Canonical sorting keeps
+threats and advice stable under reordered evidence. RiskEngine remains the only
+scoring policy. SecurityAdvisor accepts trusted detector metadata, not user text.
+Dependency injection is a code trust boundary, not an untrusted plugin interface:
+a custom detector that emits raw input in findings violates the privacy contract.
+Unexpected HTTP failures are redacted; Python callers must avoid logging arbitrary
+exceptions from their own custom dependencies.
+
+Tests exercise routing, fake guards, aggregation permutations, direct validation,
+Unicode/control-only input, byte limits with absent/false Content-Length, and
+redaction on success and 422/413/500. Application logs exclude submitted text,
+URLs and query strings. Uvicorn access logs must still be disabled separately.
+Generic text does not assess URL reputation or email phishing. Timing varies
+between requests; all decision fields are deterministic for fixed trusted detectors.
+The Phase 4 tests are regression checks, not a benchmark or a detection guarantee.

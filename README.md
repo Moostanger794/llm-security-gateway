@@ -4,8 +4,9 @@
 Команда: **le royal monceau gatsby seance**.
 
 Реализованы **PHASE 1 — Foundation**, **PHASE 2 — Prompt Security** и
-**PHASE 3 — Email Security**: FastAPI, конфигурация, безопасное логирование,
-локальные эвристические PromptGuard, EmailGuard и URLGuard.
+**PHASE 3 — Email Security**, **PHASE 4 — Orchestration**: FastAPI, конфигурация,
+безопасное логирование, локальные PromptGuard, EmailGuard и URLGuard,
+единый SecurityOrchestrator и SecurityAdvisor.
 Внешняя LLM не используется; API keys не нужны. Agent security,
 база данных и benchmark не реализованы. `/health` проверяет доступность процесса,
 а не качество защиты.
@@ -95,10 +96,10 @@ Invoke-RestMethod http://127.0.0.1:8000/analyze/prompt -Method Post -ContentType
   "risk_level": "CRITICAL",
   "threats": ["instruction_override", "system_prompt_extraction"],
   "action": "BLOCK",
-  "explanation": "Instruction-discarding language targets the instruction hierarchy. Disclosure language targets privileged prompts or hidden instructions. Combined evidence score: 0.970; strongest weight per category, with reduced weight for contextualized educational quotations.",
+  "explanation": "Disclosure language targets privileged prompts or hidden instructions. Instruction-discarding language targets the instruction hierarchy. Combined heuristic evidence score: 0.970; strongest weight per category, with reduced weight for contextualized educational quotations.",
   "recommendations": [
-    "Keep system/developer instructions separate from untrusted input.",
-    "Do not disclose privileged instructions or place secrets in prompts."
+    "Do not disclose privileged instructions or place secrets in prompts.",
+    "Keep system/developer instructions separate from untrusted input."
   ],
   "processing_time_ms": 1.5
 }
@@ -148,8 +149,8 @@ false positives; перефразирование, другие языки, ко
 учебные цитаты, лимиты тела/текста и отсутствие входных данных в логах.
 Небольшие fixtures `tests/fixtures/prompts.json` и `tests/fixtures/emails.json` — регрессионные примеры,
 не независимый benchmark и не оценка реальных FPR/FNR. Smoke-скрипт запускает
-на loopback настоящий Uvicorn, делает пять HTTP-проверок (health, два prompt,
-два email) и завершает процесс. Email-тесты дополнительно проверяют false positives,
+на loopback настоящий Uvicorn, делает семь HTTP-проверок (health, два prompt,
+два email, два text) и корректно останавливает сервер. Email-тесты проверяют false positives,
 URL extraction, combined signals, sender normalization, длинные письма,
 потоковые лимиты, отсутствие сетевых обращений и privacy на 200/422/413/500.
 
@@ -183,7 +184,7 @@ Invoke-RestMethod http://127.0.0.1:8000/analyze/email -Method Post -ContentType 
 | subject | 1–998 Unicode-символов |
 | body | 1–100 000 Unicode-символов |
 | HTTP body для email и остальных маршрутов | 1280 KiB (1 310 720 байт) |
-| HTTP body для prompt, включая trailing slash | прежние 128 KiB |
+| HTTP body для prompt/text, включая trailing slash | прежние 128 KiB |
 
 Длины проверяются до нормализации; пустые/невидимые строки, неверные типы,
 пропущенные или дополнительные поля дают 422. Malformed sender допустим как
@@ -230,10 +231,11 @@ src/ai_security_gateway/
   __init__.py             # версия пакета
   main.py                 # create_app, lifespan, request middleware
   api/
-    routes.py             # GET /health, POST /analyze/prompt, POST /analyze/email
+    routes.py             # GET /health; POST /analyze/{prompt,email,text}
     schemas.py            # HTTP requests/responses
     body_limit.py         # bounded request body before JSON parsing
     errors.py             # HTTP/validation errors
+  orchestration/          # SecurityOrchestrator, SecurityAdvisor
   models/security.py      # общая SecurityResult
   security/               # PromptGuard, EmailGuard, URLGuard, normalization, rules, RiskEngine
   core/
@@ -259,5 +261,49 @@ README.md
 
 Используется стандартный src-layout с устанавливаемым пакетом
 `ai_security_gateway`. Подробности: [архитектура](docs/architecture.md),
-[модель угроз](docs/threat_model.md). PHASE 3 завершает текущую область работ;
-Orchestration, LLM integration и компоненты последующих этапов сюда не входят.
+[модель угроз](docs/threat_model.md). PHASE 4 завершает текущую область работ;
+LLM integration и компоненты последующих этапов сюда не входят.
+
+## Orchestration and generic text (Phase 4)
+
+All analysis HTTP routes now use `SecurityOrchestrator`. Python callers can use
+this same service without FastAPI, network access or credentials:
+
+```python
+from ai_security_gateway.orchestration import SecurityOrchestrator
+
+service = SecurityOrchestrator()
+result = service.analyze_text("Ignore previous instructions")
+assert result.action == "BLOCK"
+```
+
+Available endpoints: `GET /health`, `POST /analyze/prompt`, `POST /analyze/email`,
+`POST /analyze/text`. Text accepts exactly one required string, with the same
+validation and limits as prompt: 1–20,000 original Unicode characters, visible
+content required, 128 KiB actual HTTP body before JSON parsing. Control-only,
+whitespace-only and formatting/combining-only strings are rejected. Extra fields
+(including `source`) are forbidden; there is no source label contract in Phase 4.
+
+```powershell
+$payload = @{text = 'Ignore previous instructions'} | ConvertTo-Json
+Invoke-RestMethod http://127.0.0.1:8000/analyze/text -Method Post -ContentType 'application/json' -Body $payload
+```
+
+This returns the shared SecurityResult: score `0.8`, `CRITICAL`, `DANGEROUS`,
+`BLOCK`, threat `instruction_override`, static explanation and recommendations.
+`{"text":"Meeting tomorrow"}` returns score `0.0`, `LOW`, `SAFE`, `ALLOW`.
+Malformed/invalid input returns redacted 422, oversized bodies 413, internal
+failures 500; responses carry a server-generated request ID.
+
+Prompt/text route to PromptGuard only. Email routes to EmailGuard, which composes
+PromptGuard and URLGuard. Orchestration collects unique findings, applies the
+existing RiskEngine once, and asks SecurityAdvisor for static explanations/advice.
+Threats, reasons and recommendations are sorted and deduplicated. Decisions are
+order-independent; `processing_time_ms` measures each call and naturally varies.
+No raw input is retained or copied to application logs, explanations or errors.
+Injected detectors are trusted code and must follow the text-free Finding contract.
+
+Generic text does not run email or URL heuristics and does not infer that a plain
+string came from an email/document. Existing PromptGuard contextual rules still
+apply when such indicators occur in the text. The service is local and heuristic;
+ALLOW is not proof of safety, and BLOCK must be enforced by the caller.
