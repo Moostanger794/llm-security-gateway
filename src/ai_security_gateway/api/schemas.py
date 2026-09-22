@@ -37,6 +37,10 @@ class PromptRequest(BaseModel):
         return validate_text(value)
 
 
+class TextRequest(PromptRequest):
+    """Plain untrusted text, sharing prompt validation and limits."""
+
+
 class EmailRequest(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 

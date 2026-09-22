@@ -22,6 +22,13 @@ def validate_text(text: str) -> str:
         raise TypeError("text must be a string")
     if not 1 <= len(text) <= MAX_PROMPT_LENGTH:
         raise ValueError(f"text must contain 1 to {MAX_PROMPT_LENGTH} characters")
-    if not canonicalize(text).strip():
+    if not has_visible_content(text):
         raise ValueError("text must contain visible content")
     return text
+
+
+def has_visible_content(text: str) -> bool:
+    """Control characters and unassigned/surrogate code points are not visible content."""
+    return any(
+        not c.isspace() and not unicodedata.category(c).startswith("C") for c in canonicalize(text)
+    )

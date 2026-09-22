@@ -18,7 +18,7 @@ class RequestBodyLimit:
             return
         limit = (
             MAX_PROMPT_BODY_BYTES
-            if scope["path"].rstrip("/") == "/analyze/prompt"
+            if scope["path"].rstrip("/") in {"/analyze/prompt", "/analyze/text"}
             else MAX_EMAIL_REQUEST_BYTES
         )
         body = bytearray()

@@ -1,4 +1,4 @@
-# Architecture — Foundation, Prompt Security and Email Security
+# Architecture — Phases 1–4
 
 `create_app(Settings)` constructs a FastAPI instance with its own immutable
 settings. The module-level `app` is the Uvicorn entrypoint. Settings load from
@@ -22,7 +22,8 @@ in `models/security.py`. The health/error contracts and service version remain
 unchanged. The additive `assessment` field makes SAFE/SUSPICIOUS/DANGEROUS explicit.
 
 Flow: request logging boundary → bounded ASGI body reader → strict validation →
-PromptGuard → text-free Findings → RiskEngine → SecurityResult → metadata-only log.
+SecurityOrchestrator → PromptGuard → text-free Findings → RiskEngine →
+SecurityAdvisor → SecurityResult → metadata-only log.
 The sync analysis route runs in FastAPI's worker pool. PromptGuard is stateless;
 no prompt is retained or sent to another service. Rules and weights are immutable
 definitions in `security/rules.py`. No dependencies were added.
@@ -56,7 +57,7 @@ HIGH ≤ .75 (BLOCK/DANGEROUS), otherwise CRITICAL (BLOCK/DANGEROUS).
 rule metadata. Threats can appear even in a SAFE educational assessment.
 
 Finding and RiskEngine separate evidence production from policy: a later classifier
-can contribute findings without replacing local rules. No LLM client, orchestrator,
+can contribute findings without replacing local rules. No LLM client,
 tool guardian, runtime monitor, evaluation pipeline or UI is implemented.
 
 ## Email analysis (Phase 3)
@@ -64,8 +65,9 @@ tool guardian, runtime monitor, evaluation pipeline or UI is implemented.
 `POST /analyze/email` is a synchronous worker-pool route using strict EmailRequest
 and the existing SecurityResult. EmailGuard validates original field lengths,
 normalizes text/sender, collects Findings from email heuristics, URLGuard, and
-PromptGuard.detect, then calls the unchanged RiskEngine.score/decide. There is
-no orchestration service, advisor, LLM integration or alternative scoring engine.
+PromptGuard.detect. SecurityOrchestrator calls detect and then the unchanged
+RiskEngine.score/decide and SecurityAdvisor. No LLM integration or alternative
+scoring engine is present. Standalone guard analyze methods remain compatible.
 All analysis is transient and stateless; no new dependencies are required.
 
 `email_normalization.py` owns shared API/direct-call limits: sender 320, subject
@@ -114,7 +116,7 @@ a calibrated statistical estimate. Explanations preserve all unique reasons and
 static advice without echoing sender, subject, body, URLs or query parameters.
 
 RequestBodyLimit extends the previous byte-counting middleware to all HTTP routes:
-1280 KiB by default, retaining 128 KiB for `/analyze/prompt` and its slash variant.
+1280 KiB by default, retaining 128 KiB for `/analyze/prompt`, `/analyze/text` and their slash variants.
 The email budget covers worst-case surrogate-pair JSON escaping. Actual received
 bytes are counted before JSON parsing regardless of Content-Length. Rejected input
 receives existing redacted 413/422 responses with a server-generated request ID.
@@ -126,6 +128,60 @@ Unit tests cover fixtures, normalization, context, deterministic aggregation,
 boundaries, direct-call validation and strict output models. HTTP tests cover
 contracts and invalid/oversized input. Integration tests verify privacy and actual
 ASGI chunks without trusting Content-Length. `scripts/smoke_prompt.py` starts a
-real Uvicorn process and checks health plus safe/dangerous prompts and emails over TCP.
+real Uvicorn process and checks health plus safe/dangerous prompts, emails and text over TCP, followed by graceful shutdown.
 The Phase 1 OpenAPI route-set assertion includes the new endpoint; its other
 regression assertions remain unchanged.
+
+## Orchestration service (Phase 4)
+
+```text
+Client / direct Python caller
+  |
+  v
+FastAPI strict schemas + byte limit (HTTP only)
+  |
+  v
+SecurityOrchestrator (validates direct calls too)
+  |
+  +-- prompt/text --> PromptGuard.detect
+  |
+  +-- email -------> EmailGuard.detect
+                       +--> PromptGuard.detect
+                       +--> URLGuard.detect
+  |
+  v
+Unique Findings, canonical ordering
+  |
+  v
+RiskEngine.score / decide (one shared policy)
+  |
+  v
+SecurityAdvisor (static metadata, deduplicated reasons/advice)
+  |
+  v
+SecurityResult
+```
+
+`orchestration/orchestrator.py` exposes analyze_prompt(text), analyze_text(text),
+and analyze_email(sender, subject, body). Constructor injection accepts structural
+TextDetector/EmailDetector protocols, RiskEngine and SecurityAdvisor. The HTTP
+get_orchestrator dependency creates a service per request and can be overridden
+in tests. No request data or findings are stored on instances or in globals.
+Injected implementations must be stateless trusted code returning text-free findings.
+
+The orchestrator invokes detect, not legacy analyze wrappers, so email composition
+is scored once. It does not run email analysis on plain text or double-run email's
+nested detectors. Exact findings are deduplicated before scoring; distinct findings
+within a category retain the existing maximum-weight semantics. Sorted threats,
+reasons and recommendations are independent of detector traversal order. Only
+processing_time_ms is nondeterministic. Existing standalone guard analyze methods
+remain for compatibility; the API uses the common service exclusively.
+
+TextRequest inherits PromptRequest validation (strict string, no extra fields,
+20,000 original characters). No source/context parameter is introduced. Existing
+lexical contextual detection remains unchanged. Shared visible-content validation
+now also rejects control-only strings such as NUL for all service entry points.
+Direct invalid arguments raise static TypeError/ValueError messages without input;
+unexpected internal failures propagate to the HTTP redaction boundary (500).
+The advisor only formats trusted findings and the score, never raw input. It is
+not a classifier, a second policy engine or an external model.
