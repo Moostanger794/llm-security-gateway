@@ -8,6 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException
 
 from ai_security_gateway import __version__
+from ai_security_gateway.api.body_limit import PromptBodyLimit
 from ai_security_gateway.api.errors import (
     error_response,
     http_error_handler,
@@ -45,6 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.add_exception_handler(HTTPException, http_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
+    app.add_middleware(PromptBodyLimit)
 
     @app.middleware("http")
     async def request_logging(
