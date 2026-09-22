@@ -77,7 +77,7 @@ def test_openapi_and_docs(client: TestClient) -> None:
     response = client.get("/openapi.json")
     assert response.status_code == 200
     schema = response.json()
-    assert set(schema["paths"]) == {"/health", "/analyze/prompt"}
+    assert set(schema["paths"]) == {"/health", "/analyze/prompt", "/analyze/email"}
     assert "HealthResponse" in schema["components"]["schemas"]
     assert "ErrorResponse" in schema["components"]["schemas"]
     assert client.get("/docs").status_code == 200

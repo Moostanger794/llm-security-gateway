@@ -2,6 +2,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ai_security_gateway.security.email_normalization import (
+    MAX_EMAIL_BODY_LENGTH,
+    MAX_SENDER_LENGTH,
+    MAX_SUBJECT_LENGTH,
+    validate_email_field,
+)
 from ai_security_gateway.security.normalization import MAX_PROMPT_LENGTH, validate_text
 
 
@@ -29,3 +35,16 @@ class PromptRequest(BaseModel):
     @classmethod
     def visible_text(cls, value: str) -> str:
         return validate_text(value)
+
+
+class EmailRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+
+    sender: str = Field(min_length=1, max_length=MAX_SENDER_LENGTH)
+    subject: str = Field(min_length=1, max_length=MAX_SUBJECT_LENGTH)
+    body: str = Field(min_length=1, max_length=MAX_EMAIL_BODY_LENGTH)
+
+    @field_validator("sender", "subject", "body")
+    @classmethod
+    def visible_content(cls, value: str) -> str:
+        return validate_email_field(value, MAX_EMAIL_BODY_LENGTH)

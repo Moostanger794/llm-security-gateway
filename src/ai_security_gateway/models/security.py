@@ -13,6 +13,12 @@ Threat = Literal[
     "secret_extraction",
     "role_manipulation",
     "indirect_prompt_injection",
+    "phishing",
+    "social_engineering",
+    "urgency",
+    "credential_request",
+    "suspicious_sender",
+    "suspicious_url",
 ]
 
 

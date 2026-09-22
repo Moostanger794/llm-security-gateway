@@ -3,9 +3,10 @@
 Экспериментальный defensive security gateway для LLM-приложений и AI-агентов.
 Команда: **le royal monceau gatsby seance**.
 
-Реализованы **PHASE 1 — Foundation** и **PHASE 2 — Prompt Security**:
-FastAPI, конфигурация, безопасное логирование и локальный эвристический PromptGuard.
-Внешняя LLM не используется; API keys не нужны. Email Security, agent security,
+Реализованы **PHASE 1 — Foundation**, **PHASE 2 — Prompt Security** и
+**PHASE 3 — Email Security**: FastAPI, конфигурация, безопасное логирование,
+локальные эвристические PromptGuard, EmailGuard и URLGuard.
+Внешняя LLM не используется; API keys не нужны. Agent security,
 база данных и benchmark не реализованы. `/health` проверяет доступность процесса,
 а не качество защиты.
 
@@ -145,9 +146,82 @@ false positives; перефразирование, другие языки, ко
 Тесты проверяют конфигурацию, модели, health/OpenAPI, lifespan, ошибки,
 изоляцию экземпляров приложения, PromptGuard, границы scoring, обходы,
 учебные цитаты, лимиты тела/текста и отсутствие входных данных в логах.
-Небольшой fixture `tests/fixtures/prompts.json` — регрессионные примеры,
+Небольшие fixtures `tests/fixtures/prompts.json` и `tests/fixtures/emails.json` — регрессионные примеры,
 не независимый benchmark и не оценка реальных FPR/FNR. Smoke-скрипт запускает
-на loopback настоящий Uvicorn, делает три HTTP-проверки и завершает процесс.
+на loopback настоящий Uvicorn, делает пять HTTP-проверок (health, два prompt,
+два email) и завершает процесс. Email-тесты дополнительно проверяют false positives,
+URL extraction, combined signals, sender normalization, длинные письма,
+потоковые лимиты, отсутствие сетевых обращений и privacy на 200/422/413/500.
+
+## Email Security API
+
+`POST /analyze/email` принимает JSON с тремя обязательными строками:
+
+```json
+{
+  "sender": "security@example-login.com",
+  "subject": "URGENT: Verify your account",
+  "body": "Your account will be disabled. Login now: http://example-login.com"
+}
+```
+
+```powershell
+$email = @{sender = 'security@example-login.com'; subject = 'URGENT: Verify your account'; body = 'Your account will be disabled. Login now: http://example-login.com'} | ConvertTo-Json
+Invoke-RestMethod http://127.0.0.1:8000/analyze/email -Method Post -ContentType 'application/json' -Body $email
+```
+
+Ответ — тот же `SecurityResult`, включая assessment, explanation, recommendations
+и processing_time_ms. Для примера выше: `risk_score=0.917417`, `CRITICAL`,
+`DANGEROUS`, `safe=false`, `BLOCK`. Категории: `suspicious_url`,
+`suspicious_sender`, `urgency`, `credential_request`, `social_engineering`, `phishing`.
+Инструкции для модели внутри body дополнительно проверяет существующий PromptGuard;
+сильные признаки манипуляции инструкциями получают `indirect_prompt_injection`.
+
+| Поле / ресурс | Лимит |
+| --- | --- |
+| sender | 1–320 Unicode-символов, включая display name |
+| subject | 1–998 Unicode-символов |
+| body | 1–100 000 Unicode-символов |
+| HTTP body для email и остальных маршрутов | 1280 KiB (1 310 720 байт) |
+| HTTP body для prompt, включая trailing slash | прежние 128 KiB |
+
+Длины проверяются до нормализации; пустые/невидимые строки, неверные типы,
+пропущенные или дополнительные поля дают 422. Malformed sender допустим как
+объект анализа и даёт `suspicious_sender`, а не 500. HTTP-лимит считает реальные
+байты, включая chunked body и неверный Content-Length, до JSON parsing (413).
+Он покрывает всё тело JSON, но не HTTP-заголовки. Лимит email вмещает даже
+JSON с максимальными полями, закодированными surrogate pairs.
+
+EmailGuard нормализует Unicode, регистр, whitespace и HTML entities/простую
+разметку. Sender разбирается как display name + address, домен приводится к IDNA.
+URLGuard проверяет scheme, hostname, IPv4/IPv6 и необычные числовые представления,
+embedded credentials, punycode/IDN, глубокие и обманные subdomains, separators,
+нестандартный port, длину >2048, account/login keywords и внешние redirect targets.
+URL extraction детерминирована: explicit schemes (`://`), `www.`, `//`,
+`javascript:`, `data:`, `vbscript:`, `file:`; порядок первого появления,
+дедупликация, HTML entities и удаление завершающей пунктуации. Анализируются все
+извлечённые URL в subject/body; число ссылок не обрезается.
+
+Scoring использует прежний RiskEngine: максимум веса по категории, затем
+`1 - product(1 - weight)`. Urgent сам по себе весит 0.10 (ALLOW), account loss —
+0.30, прямой credential request — 0.65, login + URL — 0.25, suspicious sender —
+0.35, social engineering — 0.45. Phishing добавляет 0.45 только при сочетании
+account/credential request с давлением или sender/URL indicators. URL-признаки
+имеют веса 0.10–0.70; повторение ссылок не увеличивает риск. Это консервативная
+эвристика, а не вероятность: связанные признаки могут усиливать друг друга.
+Подробные веса и ограничения: [архитектура](docs/architecture.md).
+
+Локальный анализ не выполняет DNS, WHOIS, reputation checks, HTTP-запросы,
+переходы по ссылкам или SPF/DKIM/DMARC verification. Подозрительный URL не означает
+malware. Display-name mismatch определяется только по явному адресу в display name;
+личность отправителя не подтверждается. Голые домены и относительные URL не
+извлекаются, MIME/attachments и browser rendering не поддерживаются. Правила
+преимущественно английские. Легитимные IDN, внутренние IP, SSO redirects, security
+training с примерами команд и отрицания могут дать false positives; перефразирование,
+обфускация и атаки через скомпрометированные обычные домены — false negatives.
+Наличие учебного контекста не отключает анализ всего письма.
+Ни sender, ни subject/body, ни URL/credentials/query strings не попадают в логи
+приложения или explanations. Для Uvicorn используйте `--no-access-log`.
 
 ## Структура
 
@@ -156,12 +230,12 @@ src/ai_security_gateway/
   __init__.py             # версия пакета
   main.py                 # create_app, lifespan, request middleware
   api/
-    routes.py             # GET /health, POST /analyze/prompt
+    routes.py             # GET /health, POST /analyze/prompt, POST /analyze/email
     schemas.py            # HTTP requests/responses
     body_limit.py         # bounded request body before JSON parsing
     errors.py             # HTTP/validation errors
   models/security.py      # общая SecurityResult
-  security/               # PromptGuard, normalization, rules, RiskEngine
+  security/               # PromptGuard, EmailGuard, URLGuard, normalization, rules, RiskEngine
   core/
     config.py             # Settings
     logging.py            # logging configuration
@@ -171,6 +245,7 @@ tests/
   api/                    # HTTP-контракты
   integration/            # lifecycle и logging
   fixtures/prompts.json    # небольшая локальная выборка
+  fixtures/emails.json     # safe/suspicious email cases
 scripts/smoke_prompt.py    # реальные HTTP smoke tests
 docs/
   architecture.md
@@ -184,5 +259,5 @@ README.md
 
 Используется стандартный src-layout с устанавливаемым пакетом
 `ai_security_gateway`. Подробности: [архитектура](docs/architecture.md),
-[модель угроз](docs/threat_model.md). PHASE 2 завершает текущую область работ;
-компоненты PHASE 3 и следующих этапов сюда не входят.
+[модель угроз](docs/threat_model.md). PHASE 3 завершает текущую область работ;
+Orchestration, LLM integration и компоненты последующих этапов сюда не входят.
