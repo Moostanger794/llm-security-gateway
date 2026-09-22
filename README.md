@@ -8,7 +8,8 @@
 безопасное логирование, локальные PromptGuard, EmailGuard и URLGuard,
 единый SecurityOrchestrator и SecurityAdvisor.
 Внешняя LLM не используется; API keys не нужны. Agent security,
-база данных и benchmark не реализованы. `/health` проверяет доступность процесса,
+база данных не реализованы. **PHASE 5 — Evaluation** добавляет локальный benchmark.
+`/health` проверяет доступность процесса,
 а не качество защиты.
 
 ## Установка
@@ -154,6 +155,37 @@ false positives; перефразирование, другие языки, ко
 URL extraction, combined signals, sender normalization, длинные письма,
 потоковые лимиты, отсутствие сетевых обращений и privacy на 200/422/413/500.
 
+## Benchmark / Evaluation (Phase 5)
+
+```powershell
+.\.venv\Scripts\python.exe -m ai_security_gateway.evaluation.benchmark
+.\.venv\Scripts\python.exe -m ai_security_gateway.evaluation.benchmark --help
+.\.venv\Scripts\python.exe -m ai_security_gateway.evaluation.benchmark --kind email --json
+```
+
+Полностью локальный pipeline: datasets → существующие orchestrator/guards →
+predictions → confusion matrix и metrics. Сеть, LLM и исполнение атак не используются.
+JSONL: `datasets/{prompts,emails,urls}/v1.jsonl`; `datasets/red_team/` зарезервирован
+для Phase 8. Реализация: `src/ai_security_gateway/evaluation/{dataset,benchmark,metrics}.py`.
+Формат записи: id, kind, input, label, attack_type, expected_action. Evaluation
+отделена от regression fixtures; labels не передаются анализаторам.
+
+Actual positive — label=attack; predicted positive — safe=false. Метрики:
+Accuracy, Precision, Recall, F1, FPR, FNR, **Attack Success Rate Proxy** (доля
+attack с ALLOW), action accuracy, средняя latency и nearest-rank P95.
+Proxy не означает успешную эксплуатацию LLM/агента. Undefined metrics = JSON null.
+`--output benchmark-reports/new-name.json` создаёт новый отчёт (каталог создайте
+заранее); существующие файлы не перезаписываются, raw inputs в отчёт не входят.
+Отчёт содержит dataset hashes, версии, конфигурацию, predictions и breakdown.
+
+Фактический запуск v1: **64 небольших project-authored примера**, 32 safe/32 attack;
+TP=27, TN=19, FP=13, FN=5. Accuracy=71,875%, Precision=67,5%, Recall=84,375%,
+F1=75%, **FPR=40,625%, FNR=15,625%**, ASR proxy=15,625%.
+Это результат только данного versioned dataset, а не real-world detection rate.
+Правила не подгонялись. Подробности, ограничения, latency и команда измеренного
+запуска: [docs/evaluation.md](docs/evaluation.md); формат и политика разметки:
+[datasets/README.md](datasets/README.md).
+
 ## Email Security API
 
 `POST /analyze/email` принимает JSON с тремя обязательными строками:
@@ -261,7 +293,7 @@ README.md
 
 Используется стандартный src-layout с устанавливаемым пакетом
 `ai_security_gateway`. Подробности: [архитектура](docs/architecture.md),
-[модель угроз](docs/threat_model.md). PHASE 4 завершает текущую область работ;
+[модель угроз](docs/threat_model.md). PHASE 5 завершает текущую область работ;
 LLM integration и компоненты последующих этапов сюда не входят.
 
 ## Orchestration and generic text (Phase 4)
