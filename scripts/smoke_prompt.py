@@ -54,6 +54,32 @@ def main() -> None:
                 assert result["action"] == expected
                 assert response.headers["X-Request-ID"]
                 print(f"POST /analyze/prompt: 200 {expected} score={result['risk_score']}")
+            for payload, expected in (
+                (
+                    {
+                        "sender": "alice@example.com",
+                        "subject": "Meeting",
+                        "body": "Please review https://docs.example.com/agenda",
+                    },
+                    "ALLOW",
+                ),
+                (
+                    {
+                        "sender": "security@example-login.com",
+                        "subject": "URGENT: Verify your account",
+                        "body": "Your account will be disabled. Login now: http://example-login.com",
+                    },
+                    "BLOCK",
+                ),
+            ):
+                response = client.post("/analyze/email", json=payload)
+                assert response.status_code == 200
+                result = response.json()
+                assert result["action"] == expected
+                assert response.headers["X-Request-ID"]
+                if expected == "BLOCK":
+                    assert "phishing" in result["threats"]
+                print(f"POST /analyze/email: 200 {expected} score={result['risk_score']}")
     finally:
         process.terminate()
         try:

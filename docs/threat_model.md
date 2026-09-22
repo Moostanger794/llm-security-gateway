@@ -1,16 +1,16 @@
-# Threat model — Phases 1–2
+# Threat model — Phases 1–3
 
 ## Assets
 
 Service availability, configuration, diagnostic logs, and HTTP response integrity.
-Prompt confidentiality and assessment integrity are also assets. Submitted text
+Prompt/email confidentiality and assessment integrity are also assets. Submitted text
 is processed transiently; no user documents, LLM secrets or tool credentials
 are persisted by this phase.
 
 ## Trust boundaries and attack surfaces
 
 HTTP clients are untrusted; environment configuration is operator-controlled.
-Exposed surfaces are `/health`, `/analyze/prompt`, OpenAPI, and interactive API
+Exposed surfaces are `/health`, `/analyze/prompt`, `/analyze/email`, OpenAPI, and interactive API
 documentation. The text field may contain external documents, but source identity
 and user intent cannot be verified from text. There are no outbound requests,
 tool execution or file uploads. The calling application is responsible for
@@ -38,8 +38,27 @@ a 128-KiB streamed body limit before JSON parsing, and bounded regex gaps. Large
 requests receive 413; invalid schemas receive 422 without echoing input. No raw
 prompt or matching substring is copied into explanations, logs or errors.
 
-Phishing, Malicious URL, Tool abuse and actual Privilege escalation enforcement
-remain future work. Role-manipulation text detection is not permission enforcement.
+EmailGuard detects local indicators of phishing, credential requests, social
+engineering, urgency and suspicious sender syntax/claims. It reuses PromptGuard
+for indirect injection inside emails. Weak evidence combines through the shared
+RiskEngine; urgent language or a normal HTTPS link alone does not imply phishing.
+URLGuard detects potentially unsafe schemes, credentials in authority, unusual
+hosts/IP/IDN, deep subdomains, long URLs and external redirect-like parameters.
+These are suspicious lexical features, not evidence of malware or reputation.
+No URL is fetched, resolved or followed, avoiding detector-induced SSRF. Sender
+identity, SPF, DKIM and DMARC are not verified. Headers beyond sender, MIME and
+attachments are outside this API's scope.
+
+Email fields are bounded before normalization: sender 320, subject 998, body
+100,000 characters. All HTTP bodies have a 1280-KiB limit; prompt keeps its 128-KiB
+limit. Streamed bodies are counted before parsing even if Content-Length is absent
+or inaccurate. All extracted URLs are inspected; repetitions are deduplicated.
+Application logs and responses never echo email fields, URL values, embedded
+credentials, query parameters, validation input or exception messages. Tests cover
+successful analysis and 422/413/500 failures. Disable hosting access logs separately.
+
+Tool abuse and actual Privilege escalation enforcement remain future work.
+Role-manipulation text detection is not permission enforcement.
 
 ## Residual risks
 
@@ -59,3 +78,16 @@ An ALLOW result must never grant extra privileges or replace isolation and least
 privilege. Body limits do not prevent slow clients, concurrent load, oversized
 headers or resource use in hosting infrastructure; production controls remain
 outside this phase. No claim of comprehensive injection prevention is made.
+
+Email/URL false positives include legitimate IDNs, internal IP addresses, deep
+corporate domains, SSO redirect parameters, administrative account notices,
+security training and negated credential commands. Sender mismatch heuristics only
+compare explicit mailbox domains, not organizational ownership. Email prose rules
+are predominantly English and cannot reliably distinguish quoted/social contexts.
+False negatives include paraphrased or multilingual phishing, compromised normal
+domains, URL shorteners, bare domains, relative links, heavily encoded/obfuscated
+HTML/URLs, attachment-based attacks, image-only phishing and homograph variants.
+Simple HTML stripping is not equivalent to browser rendering. No DNS, WHOIS,
+reputation service, external API or malware inspection is used. A LOW/ALLOW result
+is not proof of sender authenticity or URL safety. Fixtures check regressions;
+they do not establish real-world detection rates.

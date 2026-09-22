@@ -1,4 +1,4 @@
-# Architecture — Foundation and Prompt Security
+# Architecture — Foundation, Prompt Security and Email Security
 
 `create_app(Settings)` constructs a FastAPI instance with its own immutable
 settings. The module-level `app` is the Uvicorn entrypoint. Settings load from
@@ -57,7 +57,68 @@ rule metadata. Threats can appear even in a SAFE educational assessment.
 
 Finding and RiskEngine separate evidence production from policy: a later classifier
 can contribute findings without replacing local rules. No LLM client, orchestrator,
-email guard, tool guardian, runtime monitor, evaluation pipeline or UI is implemented.
+tool guardian, runtime monitor, evaluation pipeline or UI is implemented.
+
+## Email analysis (Phase 3)
+
+`POST /analyze/email` is a synchronous worker-pool route using strict EmailRequest
+and the existing SecurityResult. EmailGuard validates original field lengths,
+normalizes text/sender, collects Findings from email heuristics, URLGuard, and
+PromptGuard.detect, then calls the unchanged RiskEngine.score/decide. There is
+no orchestration service, advisor, LLM integration or alternative scoring engine.
+All analysis is transient and stateless; no new dependencies are required.
+
+`email_normalization.py` owns shared API/direct-call limits: sender 320, subject
+998, body 100,000 original Unicode characters. All fields are required, nonempty
+and must have visible content. Malformed sender syntax becomes detector evidence.
+NFKC and strict mailbox parsing handle display names; IDNA normalizes the domain.
+An explicit email address in the display name with a different domain is a mismatch;
+arbitrary brand/person names cannot be verified. Sender domains use URLGuard's
+lexical hostname checks. A link domain differing from sender is not itself an alert.
+
+Email prose uses existing NFKD/case folding, invisible mark removal and whitespace
+normalization. HTML entities and simple bounded tags are handled; this is not a
+browser or MIME parser. PromptGuard.detect checks the entire body, without the
+20,000-character prompt endpoint limit. Both raw canonical text and readable HTML
+are checked to preserve serialized role markers and detect instructions across tags.
+Findings are deduplicated. Strong prompt findings (weight > .5, excluding credential
+extraction alone) gain an indirect-injection context Finding (.65), since email is
+an external source. PromptGuard rules and its educational quote handling are unchanged.
+
+URLGuard returns static, text-free `suspicious_url` Findings. `extract_urls` returns
+first-seen unique links from subject and body, including HTML attributes. Explicit
+`scheme://`, protocol-relative, www and selected unsafe scheme forms are recognized;
+bare domains/relative paths are not guessed. Entity decoding and trailing prose
+punctuation trimming are deterministic; no URL is followed and no link-count cutoff
+hides later links. Hostname parsing errors are Findings, not exceptions in the API.
+
+| Evidence | Weight |
+| --- | --- |
+| Urgency alone / account-loss pressure | .10 / .30 |
+| Direct credential request / login request with URL | .65 / .25 |
+| Malformed or suspicious sender, explicit display-address mismatch | .35 |
+| Secrecy/payment pressure or account-loss + credential/login request | .45 social_engineering |
+| Credential/login request + urgency, account loss, sender indicator or URL weight ≥ .20 | .45 phishing |
+| HTTP / account-related URL keyword / unusual port | .10 / .20 / .20 |
+| URL length >2048 / IDN or punycode / external redirect-like target | .25 / .35 / .35 |
+| IP, unusual numeric host, single-label host, deep or domain-like subdomain | .45 |
+| Concealed characters or deceptive separators | .45 |
+| Invalid hostname pattern / malformed parse or IDNA | .50 / .55 |
+| Embedded credentials / unsupported or unsafe scheme | .65 / .70 |
+
+RiskEngine takes only the strongest URL finding across all URLs; duplicating URL
+features does not inflate scores. Independent categories combine using the existing
+formula and boundaries. Composite phishing evidence deliberately increases urgency
+when signals co-occur. Correlated categories make this a conservative policy, not
+a calibrated statistical estimate. Explanations preserve all unique reasons and
+static advice without echoing sender, subject, body, URLs or query parameters.
+
+RequestBodyLimit extends the previous byte-counting middleware to all HTTP routes:
+1280 KiB by default, retaining 128 KiB for `/analyze/prompt` and its slash variant.
+The email budget covers worst-case surrogate-pair JSON escaping. Actual received
+bytes are counted before JSON parsing regardless of Content-Length. Rejected input
+receives existing redacted 413/422 responses with a server-generated request ID.
+Application logs contain request metadata and analysis risk/action/time only.
 
 ## Verification
 
@@ -65,6 +126,6 @@ Unit tests cover fixtures, normalization, context, deterministic aggregation,
 boundaries, direct-call validation and strict output models. HTTP tests cover
 contracts and invalid/oversized input. Integration tests verify privacy and actual
 ASGI chunks without trusting Content-Length. `scripts/smoke_prompt.py` starts a
-real Uvicorn process and checks health plus safe/dangerous prompts over TCP.
+real Uvicorn process and checks health plus safe/dangerous prompts and emails over TCP.
 The Phase 1 OpenAPI route-set assertion includes the new endpoint; its other
 regression assertions remain unchanged.
