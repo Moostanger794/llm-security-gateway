@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "corpus_revision": "indirect-injection-v2.2",
+  "prepared_on": "2026-11-02",
+  "prepared_by": "project development with Codex; developer-visible, not blind",
+  "upstream": {
+    "repository": "https://github.com/microsoft/BIPIA",
+    "revision": "a004b69ec0dd446e0afd461d98cb5e96e120a5d0",
+    "data_path": "benchmark/text_attack_train.json",
+    "git_blob_sha": "190918308f4ef25d5f43d7c1b118bf3fe5dc61d2",
+    "license_path": "LICENSE",
+    "license_blob_sha": "45da10d4120107f7ad08be64044ac2c1e9255daa",
+    "license_url": "https://github.com/microsoft/BIPIA/blob/a004b69ec0dd446e0afd461d98cb5e96e120a5d0/LICENSE",
+    "license_review": "LICENSE expressly covers all repository parts except enumerated dataset components. text_attack_train.json is attack data per benchmark/README.md and is not one of the enumerated third-party exceptions. MIT attribution retained. No external context datasets imported.",
+    "selected_json_pointers": [
+      "/Alphanumeric Substitution/0",
+      "/Instruction/0",
+      "/Space Removal & Grouping/0",
+      "/Misspelling Intentionally/0"
+    ],
+    "original_split": "train",
+    "collection": "GitHub connector read-only fetch of pinned commit, LICENSE, benchmark README and the small attack JSON. No upstream dependencies, agent environment or model requests."
+  },
+  "counts": {
+    "total": 32,
+    "synthetic": 24,
+    "adapted": 8,
+    "unmodified_imported": 0,
+    "dev": 17,
+    "holdout": 15,
+    "safe": 16,
+    "attack": 16
+  },
+  "limitations": [
+    "Small purposeful diagnostic corpus, not representative of real-world frequency.",
+    "All holdout examples were visible during corpus construction; no blind independent evaluation claim.",
+    "Four source attack payloads adapted into email/document wrappers and Russian paraphrases; these are not original upstream EmailQA examples.",
+    "Upstream attack success and labels were not imported; attack indicates instruction-injection intent in the constructed external context.",
+    "No LLMail-Inject rows or AgentDojo scenarios imported; one verified source suffices for Phase 6."
+  ],
+  "split_counts": {
+    "dev": {
+      "safe": 10,
+      "attack": 7
+    },
+    "holdout": {
+      "safe": 6,
+      "attack": 9
+    }
+  },
+  "split_revision_note": "v2.2 corrects semantic grouping from the initial developer-visible v2.1 draft. Shared BIPIA wrappers move together to holdout. Educational quotations, privileged extraction, authority spoofing and control-bypass variants each stay in dev. IDs, inputs, labels, expected actions and source/content hashes are unchanged; ID prefixes do not encode current split. Synthetic provenance revision remains the original text-authoring revision v2.1."
+}

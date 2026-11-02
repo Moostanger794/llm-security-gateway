@@ -1,4 +1,9 @@
-# Local evaluation — Phase 5
+# Local evaluation — legacy Phase 5 and Phase 6 entry point
+
+The legacy pipeline below is preserved in rules mode. Phase 6 introduces a separate
+injection-only corpus and comparison runner: [evaluation_phase6.md](evaluation_phase6.md),
+with [data provenance](data_provenance.md) and [manual commands](phase6_verification.md).
+Do not pool its metrics with the mixed prompt/email/URL v1 benchmark.
 
 This phase measures the existing heuristic gateway. It does not execute attacks
 against an LLM, agent, browser or tool. There is no network access, model provider,

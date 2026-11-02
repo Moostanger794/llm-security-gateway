@@ -7,10 +7,36 @@
 **PHASE 3 — Email Security**, **PHASE 4 — Orchestration**: FastAPI, конфигурация,
 безопасное логирование, локальные PromptGuard, EmailGuard и URLGuard,
 единый SecurityOrchestrator и SecurityAdvisor.
-Внешняя LLM не используется; API keys не нужны. Agent security,
+По умолчанию работают локальные правила без API keys. Agent security и
 база данных не реализованы. **PHASE 5 — Evaluation** добавляет локальный benchmark.
+**PHASE 6 — LLM Integration** добавляет opt-in классификатор OpenAI Responses,
+явный fallback и отдельное сравнение rules / llm-only / hybrid на indirect injection.
+Интеграция проверена offline через mocks; качество реальной модели ещё не измерено.
 `/health` проверяет доступность процесса,
 а не качество защиты.
+
+После КП1 фокус — инъекции через письма и внешние документы. Это экспериментальный
+слой анализа, не замена Guardrails AI и не универсальная защита. Основная метрика —
+gateway ASR proxy, не успех атаки против реального агента. Область и ограничения:
+[docs/project_scope.md](docs/project_scope.md).
+
+В hybrid модель может только добавить findings; прежний BLOCK/REQUIRE_CONFIRMATION
+не отменяется. Поэтому FPR на той же выборке не может уменьшиться. Неопределённый
+ответ, ошибка, отказ или превышение LLM-лимита сохраняют полный rules-анализ и
+дают явный `fallback_rules`. Отсутствие ключа/модели не мешает запуску.
+HTTP JSON не изменён: смотрите `X-Analysis-Mode`, `X-LLM-Status` и сопутствующие
+заголовки из [LLM integration](docs/llm_integration.md).
+
+```powershell
+# Только offline, без платных запросов:
+.\.venv\Scripts\python.exe scripts/smoke_llm.py
+.\.venv\Scripts\python.exe -m ai_security_gateway.evaluation.comparison --mode rules --split all
+```
+
+Новый корпус и источники: [provenance](docs/data_provenance.md).
+Метрики, coverage и подготовленные ручные live-команды с лимитом 10 попыток:
+[Phase 6 evaluation](docs/evaluation_phase6.md). Полные инструкции проверки:
+[manual verification](docs/phase6_verification.md).
 
 ## Установка
 
@@ -43,6 +69,9 @@ python3 -m venv .venv
 | --- | --- | --- |
 | `APP_NAME` | `AI Security Gateway` | Название приложения, 1–100 символов |
 | `LOG_LEVEL` | `INFO` | DEBUG, INFO, WARNING, ERROR или CRITICAL |
+| `ENABLE_LLM_ANALYSIS` | `false` | Запрос hybrid-анализа вместо rules |
+| `ALLOW_EXTERNAL_LLM` | `false` | Явное согласие оператора на внешнюю передачу |
+| `LLM_MODEL` / `LLM_API_KEY` | пусто | Модель и отдельный API-ключ оператора |
 
 Некорректные значения известных настроек вызывают понятную ошибку Pydantic
 при запуске. Неизвестные поля `.env` игнорируются.
@@ -293,8 +322,8 @@ README.md
 
 Используется стандартный src-layout с устанавливаемым пакетом
 `ai_security_gateway`. Подробности: [архитектура](docs/architecture.md),
-[модель угроз](docs/threat_model.md). PHASE 5 завершает текущую область работ;
-LLM integration и компоненты последующих этапов сюда не входят.
+[модель угроз](docs/threat_model.md). Phase 6 добавляет `llm/`, per-call диагностику
+и отдельный evaluation corpus; следующие этапы не реализованы.
 
 ## Orchestration and generic text (Phase 4)
 
@@ -327,12 +356,14 @@ This returns the shared SecurityResult: score `0.8`, `CRITICAL`, `DANGEROUS`,
 Malformed/invalid input returns redacted 422, oversized bodies 413, internal
 failures 500; responses carry a server-generated request ID.
 
-Prompt/text route to PromptGuard only. Email routes to EmailGuard, which composes
+In the default rules mode, prompt/text route to PromptGuard only. Email routes to EmailGuard, which composes
 PromptGuard and URLGuard. Orchestration collects unique findings, applies the
 existing RiskEngine once, and asks SecurityAdvisor for static explanations/advice.
 Threats, reasons and recommendations are sorted and deduplicated. Decisions are
 order-independent; `processing_time_ms` measures each call and naturally varies.
 No raw input is retained or copied to application logs, explanations or errors.
+When explicitly enabled and authorized, hybrid sends the validated source object
+once to the configured classifier (explicit retries may add HTTP attempts).
 Injected detectors are trusted code and must follow the text-free Finding contract.
 
 Generic text does not run email or URL heuristics and does not infer that a plain
