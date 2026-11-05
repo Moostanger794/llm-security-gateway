@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 
 from ai_security_gateway import __version__
 from ai_security_gateway.api.schemas import (
@@ -11,14 +11,34 @@ from ai_security_gateway.api.schemas import (
     TextRequest,
 )
 from ai_security_gateway.core.logging import logger
+from ai_security_gateway.llm import ClassifierInput
 from ai_security_gateway.models.security import SecurityResult
 from ai_security_gateway.orchestration import SecurityOrchestrator
+from ai_security_gateway.orchestration.diagnostics import AnalysisMetadata
 
 router = APIRouter()
 
 
-def get_orchestrator() -> SecurityOrchestrator:
-    return SecurityOrchestrator()
+def get_orchestrator(request: Request) -> SecurityOrchestrator:
+    return request.app.state.orchestrator
+
+
+def set_analysis_headers(response: Response, metadata: AnalysisMetadata) -> None:
+    """Only validated enum/counter/configuration metadata crosses the HTTP boundary."""
+    response.headers["X-Requested-Analysis-Mode"] = metadata.requested_mode
+    response.headers["X-Analysis-Mode"] = metadata.actual_mode
+    response.headers["X-LLM-Status"] = metadata.llm_status
+    response.headers["X-LLM-Requests"] = str(metadata.requests)
+    response.headers["X-LLM-Reservations"] = str(metadata.reservations)
+    response.headers["X-LLM-Released-Reservations"] = str(metadata.released_reservations)
+    if metadata.fallback_reason is not None:
+        response.headers["X-LLM-Fallback-Reason"] = metadata.fallback_reason
+    if metadata.model is not None:
+        response.headers["X-LLM-Model"] = metadata.model
+    if metadata.input_tokens is not None:
+        response.headers["X-LLM-Input-Tokens"] = str(metadata.input_tokens)
+    if metadata.output_tokens is not None:
+        response.headers["X-LLM-Output-Tokens"] = str(metadata.output_tokens)
 
 
 OrchestratorDependency = Annotated[SecurityOrchestrator, Depends(get_orchestrator)]
@@ -37,10 +57,14 @@ async def health(request: Request) -> HealthResponse:
     responses={413: {"model": ErrorResponse}},
 )
 def analyze_prompt(
-    payload: PromptRequest, request: Request, service: OrchestratorDependency
+    payload: PromptRequest, request: Request, response: Response, service: OrchestratorDependency
 ) -> SecurityResult:
-    """Local heuristic analysis of 1–20,000 characters; no LLM or outbound requests."""
-    result = service.analyze_prompt(payload.text)
+    """Rules by default; optional configured LLM analysis, with per-call status headers."""
+    analysis = service.analyze_with_metadata(
+        ClassifierInput(source_type="prompt", text=payload.text)
+    )
+    result = analysis.result
+    set_analysis_headers(response, analysis.metadata)
     logger.info(
         "prompt_analyzed request_id=%s risk_level=%s action=%s processing_time_ms=%.3f",
         request.state.request_id,
@@ -58,10 +82,16 @@ def analyze_prompt(
     responses={413: {"model": ErrorResponse}},
 )
 def analyze_email(
-    payload: EmailRequest, request: Request, service: OrchestratorDependency
+    payload: EmailRequest, request: Request, response: Response, service: OrchestratorDependency
 ) -> SecurityResult:
-    """Local email and URL heuristics; no network access or sender authentication."""
-    result = service.analyze_email(payload.sender, payload.subject, payload.body)
+    """Email/URL rules and optional LLM inspection of sender, subject and body together."""
+    analysis = service.analyze_with_metadata(
+        ClassifierInput(
+            source_type="email", sender=payload.sender, subject=payload.subject, body=payload.body
+        )
+    )
+    result = analysis.result
+    set_analysis_headers(response, analysis.metadata)
     logger.info(
         "email_analyzed request_id=%s risk_level=%s action=%s processing_time_ms=%.3f",
         request.state.request_id,
@@ -79,10 +109,14 @@ def analyze_email(
     responses={413: {"model": ErrorResponse}},
 )
 def analyze_text(
-    payload: TextRequest, request: Request, service: OrchestratorDependency
+    payload: TextRequest, request: Request, response: Response, service: OrchestratorDependency
 ) -> SecurityResult:
-    """Analyze plain untrusted text using the common local service."""
-    result = service.analyze_text(payload.text)
+    """Analyze untrusted document text using the common service and configured mode."""
+    analysis = service.analyze_with_metadata(
+        ClassifierInput(source_type="document", text=payload.text)
+    )
+    result = analysis.result
+    set_analysis_headers(response, analysis.metadata)
     logger.info(
         "text_analyzed request_id=%s risk_level=%s action=%s processing_time_ms=%.3f",
         request.state.request_id,

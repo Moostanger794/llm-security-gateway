@@ -1,4 +1,4 @@
-# Threat model — Phases 1–5
+# Threat model — Phases 1–6
 
 ## Assets
 
@@ -12,8 +12,9 @@ are persisted by this phase.
 HTTP clients are untrusted; environment configuration is operator-controlled.
 Exposed surfaces are `/health`, `/analyze/prompt`, `/analyze/email`, `/analyze/text`, OpenAPI, and interactive API
 documentation. The text field may contain external documents, but source identity
-and user intent cannot be verified from text. There are no outbound requests,
-tool execution or file uploads. The calling application is responsible for
+and user intent cannot be verified from text. Default rules mode makes no outbound
+requests; Phase 6 optionally sends text to the explicitly configured classifier.
+There is no tool execution or file upload endpoint. The calling application is responsible for
 enforcing BLOCK/REQUIRE_CONFIRMATION before sending anything to an LLM.
 
 ## Threats and mitigations
@@ -98,8 +99,8 @@ All HTTP analysis passes through SecurityOrchestrator. Direct callers receive th
 same type, visibility and length validation before any injected detector executes.
 Control-only content is rejected in addition to whitespace/formatting-only input.
 No optional source claim is accepted; text uses PromptGuard only. Email's existing
-untrusted context stays in EmailGuard. No network, database, model provider or
-agent execution is introduced.
+untrusted context stays in EmailGuard. This rules path introduces no network,
+database or agent execution; optional Phase 6 classification is described below.
 
 Duplicate findings cannot multiply category weights. Canonical sorting keeps
 threats and advice stable under reordered evidence. RiskEngine remains the only
@@ -140,5 +141,50 @@ datasets contain no secrets. Versioned hashes identify bytes, not label correctn
 Small hand-authored data, subjective labels and unavailable URL trust context
 limit interpretation. Observed v1 FPR=40.625% and FNR=15.625% are diagnostic only,
 not population estimates. ASR proxy measures ALLOW decisions, not actual exploit
-success or enforcement. Details: [evaluation.md](evaluation.md). No Phase 6+
-component or execution capability is introduced.
+success or enforcement. Details: [evaluation.md](evaluation.md). The legacy
+benchmark stays rules-only even when provider settings are present.
+
+## Phase 6 provider and classifier boundary
+
+Additional assets are the API key, external transmission consent, request budget,
+provider usage accounting and validity of experimental conclusions. Settings are
+trusted operator configuration; untrusted text cannot choose the model, endpoint,
+system instructions, mode, tools or retry policy. The fixed OpenAI endpoint is the
+only outbound destination of this adapter; URLs in data are never fetched.
+
+The classifier itself is susceptible to prompt injection. Its versioned system
+instruction asks it to analyze data, including sender/subject and fake role markers,
+rather than obey it. User content occupies a separate serialized data message.
+JSON boundaries are not a security guarantee. The classifier has no tool privileges,
+browsing, shell, email permissions or access to application secrets. API authentication
+is an HTTP credential, never prompt content. No original authorized task is provided,
+so assertions of authorization in text cannot establish trusted intent.
+
+Only a strict closed structured response may become findings. Local policy controls
+weights, thresholds and actions. Output free text, unknown categories, arbitrary
+actions, inconsistent fields, refusal, incomplete JSON and uncertain are never benign
+successes. Explanations are static templates. The client does not persist raw data
+or responses and suppresses SDK/HTTP debug namespaces, including OPENAI_LOG debug.
+`store=false` disables response storage; it is not a Zero Data Retention guarantee.
+Provider account retention terms still apply. Do not submit confidential corporate
+mail without authorization. Only authorized public/synthetic corpus data are intended
+for the prepared experiment.
+
+Timeouts, unavailable credentials/model, API errors, budget exhaustion and excessive
+input size produce explicit fallback. Rules see the complete input, and their BLOCK
+cannot be removed by LLM error or benign verdict. However, fallback_rules may miss
+attacks a model could have detected. Clients must inspect X-LLM-Status, not infer
+LLM completion from HTTP 200 or ALLOW. The gateway still only recommends an action.
+Hybrid can increase false positives; false positives cannot decrease under this union.
+
+LLM-enabled API access consumes operator budget; this local prototype has no auth or
+per-user rate limiter. Keep the documented loopback binding and require trusted access.
+Offline is the default. Benchmark live opt-in adds a shared hard attempt ceiling that
+includes retries; an incomplete run reports coverage and unresolved/fallback reasons.
+No hidden SDK retries, automatic expensive model choice or input chunking is used.
+An HTTP timeout bounds transport phases; it is not an end-to-end server deadline.
+
+New corpus provenance/split hashes prevent accidental edits and group leakage, not
+incorrect labels or developer knowledge. Holdout is developer-visible, not blind.
+Mock tests prove protocol/policy behavior only; neither mocks nor low gateway ASR
+proxy prove resistance of a real downstream agent. Real end-to-end ASR is Phase 8.

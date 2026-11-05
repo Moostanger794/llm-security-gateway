@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 
 from ai_security_gateway import __version__
@@ -18,18 +19,33 @@ from ai_security_gateway.api.routes import router
 from ai_security_gateway.api.schemas import ErrorResponse
 from ai_security_gateway.core.config import Settings
 from ai_security_gateway.core.logging import configure_logging, logger
+from ai_security_gateway.llm import Classifier, build_classifier
+from ai_security_gateway.orchestration import SecurityOrchestrator
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, *, classifier: Classifier | None = None
+) -> FastAPI:
     """Build an isolated app; no external services or secrets are required."""
     settings = settings if settings is not None else Settings()
+    owned_classifier = classifier
+    if owned_classifier is None and settings.enable_llm_analysis:
+        owned_classifier = build_classifier(settings)
+    service = SecurityOrchestrator(
+        classifier=owned_classifier,
+        mode="hybrid" if settings.enable_llm_analysis else "rules",
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         configure_logging(settings.log_level)
         logger.info("application_started version=%s", __version__)
-        yield
-        logger.info("application_stopped")
+        try:
+            yield
+        finally:
+            if owned_classifier is not None:
+                await run_in_threadpool(owned_classifier.close)
+            logger.info("application_stopped")
 
     app = FastAPI(
         title=settings.app_name,
@@ -44,6 +60,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         },
     )
     app.state.settings = settings
+    app.state.orchestrator = service
     app.add_exception_handler(HTTPException, http_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_middleware(RequestBodyLimit)

@@ -1,5 +1,6 @@
 """Start a real local Uvicorn process, verify HTTP contracts, then stop it."""
 
+import os
 import socket
 import subprocess
 import sys
@@ -27,6 +28,7 @@ def main() -> None:
         text=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
+        env={**os.environ, "ENABLE_LLM_ANALYSIS": "false", "ALLOW_EXTERNAL_LLM": "false"},
     )
     try:
         with httpx.Client(

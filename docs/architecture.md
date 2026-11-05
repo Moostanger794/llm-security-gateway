@@ -1,4 +1,4 @@
-# Architecture — Phases 1–5
+# Architecture — Phases 1–6
 
 `create_app(Settings)` constructs a FastAPI instance with its own immutable
 settings. The module-level `app` is the Uvicorn entrypoint. Settings load from
@@ -56,9 +56,9 @@ HIGH ≤ .75 (BLOCK/DANGEROUS), otherwise CRITICAL (BLOCK/DANGEROUS).
 `safe` is true exactly for SAFE. Explanations and recommendations use only static
 rule metadata. Threats can appear even in a SAFE educational assessment.
 
-Finding and RiskEngine separate evidence production from policy: a later classifier
-can contribute findings without replacing local rules. No LLM client,
-tool guardian, runtime monitor or UI is implemented. Local evaluation is described below.
+Finding and RiskEngine separate evidence production from policy. The optional
+Phase 6 classifier contributes findings without replacing local rules; details
+are below. Tool guardian, runtime monitor and UI are outside this phase.
 
 ## Email analysis (Phase 3)
 
@@ -66,9 +66,9 @@ tool guardian, runtime monitor or UI is implemented. Local evaluation is describ
 and the existing SecurityResult. EmailGuard validates original field lengths,
 normalizes text/sender, collects Findings from email heuristics, URLGuard, and
 PromptGuard.detect. SecurityOrchestrator calls detect and then the unchanged
-RiskEngine.score/decide and SecurityAdvisor. No LLM integration or alternative
-scoring engine is present. Standalone guard analyze methods remain compatible.
-All analysis is transient and stateless; no new dependencies are required.
+RiskEngine.score/decide and SecurityAdvisor. These standalone guards remain local
+and unchanged. Phase 6 adds classification at the orchestrator boundary, not
+inside the guards; there is no alternative scoring engine.
 
 `email_normalization.py` owns shared API/direct-call limits: sender 320, subject
 998, body 100,000 original Unicode characters. All fields are required, nonempty
@@ -204,3 +204,59 @@ Timing wraps each adapter call using perf_counter; P95 uses nearest rank.
 Dataset hashes, versions and configuration support reproduction. CLI has controlled
 errors, cwd-confined paths and exclusive output creation. Full definitions and
 measured limitations are in [evaluation.md](evaluation.md).
+
+## Optional LLM integration (Phase 6)
+
+`create_app(settings, classifier=...)` composes one application-scoped classifier
+and orchestrator. The client is lazy (no startup request), shared across worker
+threads and closed in lifespan through `run_in_threadpool`. Synchronous analysis
+routes remain in FastAPI's worker pool; provider calls never run directly on the
+async event loop. Tests verify health remains responsive during a blocked fake call.
+Default settings and the legacy benchmark stay rules-only.
+
+`SecurityOrchestrator.analyze_with_metadata(ClassifierInput)` returns `Analysis`
+containing the unchanged SecurityResult and separate AnalysisMetadata. Existing
+`analyze_prompt/text/email` methods continue to return SecurityResult; configured
+hybrid services use the same new path. There is no mutable `last_status`.
+
+```text
+Validated source -> unchanged guards -> original findings ----+
+       |                                                    |
+       +-> opt-in classifier -> validated verdict -> findings+-> RiskEngine once
+                  |                                              -> Advisor
+                  +-> status/tokens/attempts -> per-call metadata
+```
+
+PromptGuard is not given an LLM; EmailGuard already composes PromptGuard, so one
+email produces one classifier operation containing sender, subject and body.
+Document source is supplied by the route; embedded role/source claims remain data.
+No expected labels, prior scores or inferred trusted user task enter the classifier.
+Rules process the full input even when LLM input is too large; there is no truncation
+or automatic chunk fan-out. Explicit configured retries are counted HTTP attempts.
+
+`llm/models.py` defines the closed verdict/reason/threat schema. `provider.py` uses
+the official SDK's Responses API with JSON Schema, fixed endpoint, no tools,
+`store=false`, zero SDK retries and explicit timeout/attempt budgets. API keys come
+only from Settings; environment proxies and SDK endpoint overrides are ignored.
+SDK environment custom headers are cleared on the adapter's client only. A final
+transport guard rejects mismatched or duplicate Authorization/project/organization
+headers after all SDK and HTTP request hooks. That same boundary owns atomic budget
+reservation/commit/release and per-call transport-handoff counters. Client creation,
+serialization and header failures spend no handoffs; transport timeouts do spend
+their committed slot. See [llm_integration.md](llm_integration.md) for diagnostics
+and the SDK-private compatibility seam.
+`llm/policy.py` maps validated codes to local text-free Findings (weight .80 per
+reported injection category; policy, not calibrated probability). The original
+RiskEngine deduplicates categories by max weight; absence of LLM findings cannot
+reduce rules risk. Hybrid FPR consequently cannot decrease on the same sample set.
+
+Success requires a complete, consistent response. Errors/refusal/uncertain become
+fallback metadata and preserve original findings. HTTP headers expose requested
+mode, actual mode, status, reason, configured model and available token/attempt
+counts; SecurityResult JSON stays unchanged. See [llm_integration.md](llm_integration.md).
+
+The new comparison runner uses public `collect_findings` / `result_from_findings`
+methods to apply the same rules and policy in each mode. It may reuse one in-memory
+LLM outcome for llm-only and hybrid in a single run; no persistent raw cache exists.
+Full-call latency includes shared provider wait, counted as a shared measured stage,
+not a second paid request or a cache hit. See [evaluation_phase6.md](evaluation_phase6.md).
