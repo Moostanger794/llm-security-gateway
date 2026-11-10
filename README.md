@@ -3,6 +3,14 @@
 Экспериментальный defensive security gateway для LLM-приложений и AI-агентов.
 Команда: **le royal monceau gatsby seance**.
 
+Подготовка КП2: [фактическая готовность и материалы](docs/kp2/README.md),
+[offline-demo](docs/kp2/demo.md), [проверки и результаты](docs/kp2/verification.md).
+Для сдачи: [редактируемая PPTX](deliverables/kp2/KP2_AI_Security_Gateway.pptx),
+[отчёт](docs/kp2/report.md), [речь на пять участников](docs/kp2/speech.md).
+Дедлайн — 10 ноября, 23:59 МСК; доклад 2 минуты и вопросы 1 минута.
+Вклады участников предложены для подтверждения; материалы пока в статусе черновика.
+Запуск: `.\.venv\Scripts\python.exe scripts/kp2_demo.py` — RULES / NO LIVE LLM.
+
 Реализованы **PHASE 1 — Foundation**, **PHASE 2 — Prompt Security** и
 **PHASE 3 — Email Security**, **PHASE 4 — Orchestration**: FastAPI, конфигурация,
 безопасное логирование, локальные PromptGuard, EmailGuard и URLGuard,

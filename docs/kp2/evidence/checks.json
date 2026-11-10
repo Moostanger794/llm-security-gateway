@@ -1,0 +1,105 @@
+{
+  "started_utc": "2026-11-10T16:04:37.742694+00:00",
+  "python": "3.12.14",
+  "versions": {
+    "ai-security-gateway": "0.1.0",
+    "fastapi": "0.141.1",
+    "pydantic": "2.13.5",
+    "pydantic-settings": "2.15.0",
+    "uvicorn": "0.53.0",
+    "openai": "2.54.0",
+    "httpx": "0.28.1",
+    "pytest": "9.1.1",
+    "ruff": "0.16.8",
+    "anyio": "4.15.1",
+    "starlette": "1.6.0",
+    "pip": "25.0.1"
+  },
+  "checks": [
+    {
+      "name": "pytest",
+      "args": [
+        "-m",
+        "pytest",
+        "-q"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "ruff",
+      "args": [
+        "-m",
+        "ruff",
+        "check",
+        "."
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "format",
+      "args": [
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "."
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "pip",
+      "args": [
+        "-m",
+        "pip",
+        "check"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "smoke_prompt",
+      "args": [
+        "scripts/smoke_prompt.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "smoke_llm",
+      "args": [
+        "scripts/smoke_llm.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "legacy",
+      "args": [
+        "-m",
+        "ai_security_gateway.evaluation.benchmark",
+        "--output",
+        "benchmark-reports/kp2-20261110/final-legacy.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "injection",
+      "args": [
+        "-m",
+        "ai_security_gateway.evaluation.comparison",
+        "--mode",
+        "rules",
+        "--split",
+        "all",
+        "--output",
+        "benchmark-reports/kp2-20261110/final-injection.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "demo",
+      "args": [
+        "scripts/kp2_demo.py"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "finished_utc": "2026-11-10T16:05:04.044032+00:00"
+}
