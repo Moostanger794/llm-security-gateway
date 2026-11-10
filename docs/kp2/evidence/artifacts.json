@@ -1,0 +1,65 @@
+{
+  "verification_date_moscow": "2026-11-10",
+  "measured_code_revision": "01e6f23342a3d5d727f53891cbd57bb9601b9c7c",
+  "measured_code_dirty": true,
+  "artifact_sha256": {
+    "deliverables/kp2/KP2_AI_Security_Gateway.pptx": "c95cf4aea9eb93c8fdb3609b96d60042365f996ead1a7e2780644f8b8a9e2ca5",
+    "docs/kp2/slides.json": "14bb3b6f4f6f01a18b4d2c5e4619969850ce02b1e27f481c9e0331c7159c7d4d",
+    "docs/kp2/demo-output.txt": "9ae4cee8a1e7bc173931f926ff69d42e4669e78bd0b6a238ec17931f15ebfbd2",
+    "scripts/kp2_demo.py": "36f4f0865b858b67a5cfc8fb75f5e5dda604b97726dd92a4703b99254c26251b",
+    "tests/integration/test_kp2_demo.py": "a34b6b2356c6cc3aa0c85694343d36436f55e2ee8ed2c8247bb95022d506576b",
+    "datasets/indirect_injection/manifest.json": "0991e2d7adb6eab2b6553e927182feaafff7768f86d76f0665dd00243ade9bfe",
+    "datasets/indirect_injection/BIPIA-LICENSE.txt": "fd4b6ecbd640d853eb60ae84e74991f5ae8585e9520079e0eb18aaced1543fc8",
+    "docs/kp2/evidence/injection-rules.json": "dbc391feb978ced5a0391d06bcacbe318edcedbedf946d79712a7f85d1144475",
+    "docs/kp2/evidence/legacy-rules.json": "e2eafa8c612ac0a95f223c2165e3c6b5aa3d01a8147360e2541432be22b39bb6"
+  },
+  "pptx": {
+    "slides": 9,
+    "hidden_slides": [
+      8,
+      9
+    ],
+    "native_table_slides": [
+      2,
+      3,
+      6,
+      8
+    ],
+    "editable_text_runs": 159,
+    "raster_picture_count": 0,
+    "size_emu": [
+      12192000,
+      6858000
+    ],
+    "hyperlinks_to_repository": 9,
+    "source_text_matches_export": true,
+    "package_and_geometry": "pass",
+    "all_final_slides_rendered_and_visually_reviewed": true,
+    "opened_in_microsoft_powerpoint": false
+  },
+  "speech": {
+    "blocks": 5,
+    "word_counts": [
+      44,
+      36,
+      35,
+      38,
+      45
+    ],
+    "words": 198,
+    "planned_speech_seconds": 108,
+    "planned_transition_seconds": 12,
+    "rehearsed": false
+  },
+  "relative_link_targets_checked": 105,
+  "missing_relative_targets": [],
+  "secret_marker_findings": [],
+  "secret_scan_scope": "candidate text files, common key/private-key markers only",
+  "runtime_rules_datasets_dependencies_unchanged": true,
+  "existing_demo_and_tests_unchanged": true,
+  "real_llm_requests": 0,
+  "limitations": [
+    "Personal contributions and self-assessment need team confirmation",
+    "PowerPoint device rehearsal and submission are team actions"
+  ]
+}
